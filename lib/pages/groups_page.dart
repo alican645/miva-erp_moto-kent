@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:moto_kent/Models/ChatGroupModel.dart';
+import 'package:moto_kent/Models/chat_group_model.dart';
 
 class ChatGroupsPage extends StatefulWidget {
   const ChatGroupsPage({super.key});
