@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/svg.dart';
-import 'package:moto_kent/Models/PostModel.dart';
+import 'package:moto_kent/Models/post_model.dart';
 import 'package:moto_kent/Utils/AppData.dart';
 
 

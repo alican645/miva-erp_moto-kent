@@ -13,7 +13,8 @@ import 'package:moto_kent/main.dart';
 void main() {
   testWidgets('Counter increments smoke test', (WidgetTester tester) async {
     // Build our app and trigger a frame.
-    await tester.pumpWidget(const MyApp());
+    String initialRoute = await getInitialRoute(); // İlk rotayı belirlemek için token kontrolü yapılacak
+    await tester.pumpWidget(MyApp(initialRoute: initialRoute));
 
     // Verify that our counter starts at 0.
     expect(find.text('0'), findsOneWidget);
