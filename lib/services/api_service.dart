@@ -1,5 +1,7 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:http/http.dart' as http;
+import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:jwt_decoder/jwt_decoder.dart';
 import '../constants/api_constants.dart';
@@ -77,4 +79,36 @@ class ApiService {
       throw Exception('Desteklenmeyen HTTP yöntemi');
     }
   }
+
+  Future<Map<String, dynamic>> makeMultipartRequest(
+      String endpoint, XFile photo, Map<String, String> fields) async {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    String? token = prefs.getString('jwt_token');
+
+    if (token == null) {
+      throw Exception('Oturum açılmadı.');
+    }
+
+    var request = http.MultipartRequest(
+      'POST',
+      Uri.parse(endpoint),
+    );
+
+    request.headers['Authorization'] = 'Bearer $token';
+    request.fields.addAll(fields);
+
+    // Fotoğraf dosyasını isteğe ekle
+    request.files.add(await http.MultipartFile.fromPath('photo', photo.path));
+
+    var response = await request.send();
+
+    if (response.statusCode == 200) {
+      final responseData = await response.stream.bytesToString();
+      return jsonDecode(responseData);  // json verisini döndürüyoruz ve işlem burada bitiyor
+    } else {
+      throw Exception('Fotoğraf yüklenemedi: ${response.statusCode}');
+    }
+  }
+
 }
+
