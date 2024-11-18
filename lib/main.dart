@@ -45,7 +45,7 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp.router(
       routerConfig: router, // Router'ı kullanarak uygulamayı başlatın
-      title: 'Flutter Demo',
+      title: 'MotoKent',
       theme: AppTheme.themeData,
     );
   }

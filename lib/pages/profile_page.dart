@@ -1,10 +1,13 @@
 import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:fluttertoast/fluttertoast.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:moto_kent/Models/user_model.dart';
-import 'package:permission_handler/permission_handler.dart';
+import 'package:moto_kent/models/user_model.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:moto_kent/services/api_service.dart'; // API servisi import edildi.
+import 'package:moto_kent/constants/api_constants.dart'; // API endpointleri import edildi.
+import 'dart:convert'; // JSON çözümlemek için import edildi.
+import 'package:http/http.dart' as http; // Multipart request için
 
 class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key});
@@ -14,94 +17,200 @@ class ProfilePage extends StatefulWidget {
 }
 
 class _ProfilePageState extends State<ProfilePage> {
-  //model değişkeni ve bu modele ait özellik değişkenleri
   UserModel? _userModel;
-  String? _profilePhotoPath;
-  String? _userName;
-  String? _userSurname;
-  String? _userBirthday;
-  int? _userRating;
-  List<String>? _userPhotos;
-  int? _fallower;
-  int? _fallowed;
-  String? _userContent;
-
-  //sayfada kullanılacak renkler
-  Color _editProfileButtonBackground = const Color(0xfff48a34);
-
-  //galeriye gitmek için gerekli değişkenler
-  XFile? imageFile;
+  final Color _editProfileButtonBackground = const Color(0xfff48a34);
   final imagePicker = ImagePicker();
+  List<String> _userPhotos = [];
+
+  File? _selectedProfilePhoto;
 
   @override
   void initState() {
-    _userModel = UserModel(
-        id: 1,
-        userName: "Ali Can",
-        userSurname: "Aydın",
-        userBirthday: "28",
-        fallowed: 125,
-        fallower: 220,
-        sharingPhotoPath: [
-         ],
-        profilePhotoPath:
-            "https://images.pexels.com/photos/771742/pexels-photo-771742.jpeg?auto=compress&cs=tinysrgb&dpr=1&w=500",
-        userContent:
-            "Yazılım Mühendisiasdlkandsljandasdhlbajlsfljashkjfskjfkjsdbfkjsbfkjsbdfkjbskjdfbskjfbjksbfkjsbdkfjbsdkjfbksjdbfkjsdbfkjsdbfkjsbdfkjsdkfjbskjdfskjdfskjbdfsjkfbjksbfkjjsbfkjsbfkjskfjskjddtfbjksdbfkjsbfkjsbfkjbskjfbskjfbksjbfksjbfksjb",
-        userRating: 4);
-    _profilePhotoPath = _userModel!.profilePhotoPath.toString();
-    _userName = _userModel!.userName.toString();
-    _userSurname = _userModel!.userSurname.toString();
-    _userBirthday = _userModel!.userBirthday.toString();
-    _userRating = _userModel!.userRating;
-    _userPhotos = _userModel!.sharingPhotoPath!.toList();
-    _fallower = _userModel!.fallower;
-    _fallowed = _userModel!.fallowed;
-    _userContent = _userModel!.userContent;
-
     super.initState();
+    _loadUserProfile();
   }
+
+  Future<void> _loadUserProfile() async {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    String? userId = prefs.getString('user_id');
+
+    if (userId != null) {
+      await fetchUserProfile(userId);
+      await fetchUserPhotos(userId);
+    } else {
+      Fluttertoast.showToast(msg: 'Kullanıcı ID bulunamadı');
+    }
+  }
+
+  Future<void> fetchUserProfile(String userId) async {
+    try {
+      final response = await ApiService().makeAuthenticatedRequest(
+        '${ApiConstants.userProfileEndpoint}/$userId',
+        'GET',
+      );
+
+      if (response.statusCode == 200) {
+        final Map<String, dynamic> data = jsonDecode(response.body);
+        setState(() {
+          _userModel = UserModel.fromJson(data);
+        });
+      } else {
+        Fluttertoast.showToast(msg: 'Kullanıcı profili yüklenemedi: ${response.statusCode}');
+      }
+    } catch (e) {
+      Fluttertoast.showToast(msg: 'Hata: $e');
+    }
+  }
+
+  Future<void> fetchUserPhotos(String userId) async {
+    try {
+      final response = await ApiService().makeAuthenticatedRequest(
+        '${ApiConstants.getUserPhotosEndpoint}?userId=$userId',
+        'GET',
+      );
+
+      if (response.statusCode == 200) {
+        final List<dynamic> data = jsonDecode(response.body); // Gelen yanıt bir liste olarak çözümlenir
+        setState(() {
+          _userPhotos = List<String>.from(data); // JSON listesini doğrudan atıyoruz
+        });
+      } else {
+        Fluttertoast.showToast(msg: 'Kullanıcı fotoğrafları yüklenemedi: ${response.statusCode}');
+      }
+    } catch (e) {
+      Fluttertoast.showToast(msg: 'Hata: $e');
+    }
+  }
+
+
+
+  Future<void> _selectAndUploadPhoto() async {
+    final pickedImage = await imagePicker.pickImage(source: ImageSource.gallery);
+    if (pickedImage != null) {
+      await _uploadUserPhoto(pickedImage);
+    }
+  }
+
+  Future<void> _uploadUserPhoto(XFile photo) async {
+    try {
+      SharedPreferences prefs = await SharedPreferences.getInstance();
+      String? userId = prefs.getString('user_id');
+
+      if (userId == null) {
+        Fluttertoast.showToast(msg: 'Oturum açılmadı');
+        return;
+      }
+
+      var fields = {'userId': userId};
+      var decodedData = await ApiService().makeMultipartRequest(
+        ApiConstants.uploadPhotoEndpoint,
+        photo,
+        fields,
+      );
+
+      // Fotoğraf URL'sini listeye ekleyin
+      String photoUrl = decodedData['photoUrl']; // Backend'den dönen tam URL
+      setState(() {
+        _userPhotos.add(photoUrl);
+      });
+      Fluttertoast.showToast(msg: 'Fotoğraf yüklendi');
+    } catch (e) {
+      Fluttertoast.showToast(msg: 'Hata: $e');
+    }
+  }
+
+
+  // Kullanıcı profilini güncelleme fonksiyonu
+  Future<void> _updateUserProfile(String userId, String fullName, String bio, File? profilePhotoFile) async {
+    try {
+      SharedPreferences prefs = await SharedPreferences.getInstance();
+      String? token = prefs.getString('jwt_token');
+
+      if (token == null) {
+        Fluttertoast.showToast(msg: 'Oturum açılmadı');
+        return;
+      }
+
+      var request = http.MultipartRequest(
+        'PUT',
+        Uri.parse(ApiConstants.updateProfileEndpoint),
+      );
+
+      request.headers['Authorization'] = 'Bearer $token';
+      request.fields['userId'] = userId;
+      request.fields['fullName'] = fullName;
+      request.fields['bio'] = bio;
+
+      if (profilePhotoFile != null) {
+        request.files.add(await http.MultipartFile.fromPath(
+          'profilePicture',
+          profilePhotoFile.path,
+        ));
+      }
+
+      var response = await request.send();
+
+      if (response.statusCode == 200) {
+        Fluttertoast.showToast(msg: 'Profil güncellendi');
+        await fetchUserProfile(userId); // Profil güncellendikten sonra yeniden yükle
+      } else {
+        Fluttertoast.showToast(msg: 'Profil güncellenemedi: ${response.statusCode}');
+      }
+    } catch (e) {
+      Fluttertoast.showToast(msg: 'Hata: $e');
+    }
+  }
+
 
   @override
   Widget build(BuildContext context) {
     double width = MediaQuery.of(context).size.width;
-    //double height = MediaQuery.of(context).size.height;
-    return SingleChildScrollView(
+
+    if (_userModel == null) {
+      return const Center(
+        child: CircularProgressIndicator(),
+      );
+    }
+
+    return RefreshIndicator(
+      onRefresh: _loadUserProfile, // Sayfayı yenilemek için çağrılacak fonksiyon
+      child: SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(), // Scroll işlemi her durumda etkin
         child: Padding(
           padding: EdgeInsets.all(width * 0.05),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
+              // Profil Fotoğrafı ve Kullanıcı Bilgileri
               Row(
                 children: [
                   CircleAvatar(
                     radius: 50,
-                    backgroundImage: NetworkImage(
-                        _profilePhotoPath!), // Profil resmi URL'i buraya
+                    backgroundImage: _userModel!.profilePhotoPath != null &&
+                        _userModel!.profilePhotoPath!.isNotEmpty
+                        ? NetworkImage('${ApiConstants.baseUrl}${_userModel!.profilePhotoPath!}')
+                        : const AssetImage('assets/images/default_profile.png') as ImageProvider,
                   ),
-
-                  Container(
-                    width: width*0.5,
+                  SizedBox(
+                    width: width * 0.5,
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         Column(
                           children: [
                             Text(
-                              _fallower.toString(),
-                              style: const TextStyle(
-                                  fontSize: 20, fontWeight: FontWeight.bold),
+                              _userModel!.followerCount.toString(),
+                              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                             ),
                             const Text('Takipçi'),
                           ],
                         ),
-                        SizedBox(width: width*0.05,),
+                        SizedBox(width: width * 0.05),
                         Column(
                           children: [
                             Text(
-                              _fallowed.toString(),
-                              style: const TextStyle(
-                                  fontSize: 20, fontWeight: FontWeight.bold),
+                              _userModel!.followingCount.toString(),
+                              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                             ),
                             const Text('Takip'),
                           ],
@@ -109,63 +218,35 @@ class _ProfilePageState extends State<ProfilePage> {
                       ],
                     ),
                   ),
-                  Container(
-                      height: width*0.2,
-
-                      child: const Align(
-                        alignment: Alignment.topRight,
-                          child: const Icon(Icons.settings)))
+                  SizedBox(
+                    height: width * 0.2,
+                    child: Align(
+                      alignment: Alignment.topRight,
+                      child: IconButton(
+                        icon: const Icon(Icons.settings),
+                        onPressed: () {
+                          _showEditProfileModal(context);
+                        },
+                      ),
+                    ),
+                  ),
                 ],
               ),
+              // Kullanıcı Bilgileri
               Row(
                 children: [
                   Text(
-                    '${_userName} ${_userSurname} ${_userBirthday}',
+                    _userModel!.fullName,
                     style: const TextStyle(
                       fontSize: 24,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
-                  SizedBox(width: width*0.1,),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      ...List.generate(
-                        _userRating!,
-                        (index) => const Icon(Icons.star, color: Colors.amber),
-                      )
-                    ],
-                  ),
                 ],
               ),
               Align(
-                  alignment: Alignment.centerLeft, child: Text(_userContent!)),
-              SizedBox(
-                height: width * 0.05,
-              ),
-              GestureDetector(
-                child: Container(
-                  width: width * 0.4,
-                  child:   const Padding(
-                    padding:  const EdgeInsets.all(8.0),
-                    child:  Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Text(
-                          "Profili Düzenle",
-                          style: TextStyle(color: Colors.white),
-                        ),
-                        Icon(
-                          Icons.arrow_right,
-                          color: Colors.white,
-                        )
-                      ],
-                    ),
-                  ),
-                  decoration: BoxDecoration(
-                      color: _editProfileButtonBackground,
-                      borderRadius: BorderRadius.circular(90)),
-                ),
+                alignment: Alignment.centerLeft,
+                child: Text(_userModel!.bio ?? 'Biyografi henüz eklenmedi'),
               ),
               const SizedBox(height: 20),
               const Divider(
@@ -173,157 +254,111 @@ class _ProfilePageState extends State<ProfilePage> {
                 indent: 20,
                 endIndent: 20,
               ),
+              // Fotoğraf Galerisi Kısmı
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 20),
-                child: GridView.count(
-                  crossAxisCount: 3,
+                child: GridView.builder(
+                  itemCount: _userPhotos.length + 1,
                   shrinkWrap: true,
                   physics: const NeverScrollableScrollPhysics(),
-                  crossAxisSpacing: 10,
-                  mainAxisSpacing: 10,
-                  children: [
-                    GestureDetector(
-                      onTap: () async {
-                        await selectImageFromGallery(context: context).then((value) {
-                          imageFile=value;
-                          showShareConfirmationDialog(context: context,sharingFunction: () {
-                            setState(() {
-                              _userPhotos!.add(imageFile!.path.toString());
-                            });
-                          },);
-                        },);
-                      },
-                      child: Container(
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(10),
-                          color: Colors.grey[300],
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 3,
+                    crossAxisSpacing: 10,
+                    mainAxisSpacing: 10,
+                  ),
+                  itemBuilder: (context, index) {
+                    if (index == 0) {
+                      return GestureDetector(
+                        onTap: _selectAndUploadPhoto,
+                        child: Container(
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(10),
+                            color: Colors.grey[300],
+                          ),
+                          child: const Center(
+                            child: Icon(Icons.add, size: 40, color: Colors.black),
+                          ),
                         ),
-                        child: const Center(
-                          child: Icon(Icons.add, size: 40, color: Colors.black),
-                        ),
-                      ),
-                    ),
-                    ...List.generate(
-                      _userPhotos!.length,
-                      (index) => Container(
-                        width: 40,
-                        height: 100,
-                        child: Image.file(
-                          File(_userPhotos![index]),
-                          fit: BoxFit.fill,
-                        ),
-                      ),
-                    )
-                  ],
+                      );
+                    } else {
+                      return Image.network(
+                        '${ApiConstants.baseUrl}${_userPhotos[index - 1]}',
+                        fit: BoxFit.cover,
+                      );
+                    }
+                  },
                 ),
               ),
             ],
           ),
         ),
-      );
-  }
-  void showShareConfirmationDialog({required BuildContext context,required VoidCallback sharingFunction}) {
-    showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: Text('Paylaşım Onayı'),
-          content: Text('Bu Fotoğrafı paylaşmak istediğinizden emin misiniz?'),
-          actions: [
-            TextButton(
-              onPressed: () {
-                Navigator.of(context).pop(); // Dialog'u kapat
-                Fluttertoast.showToast(msg: 'Paylaşım işlemi iptal edildi.'); // Kullanıcıya bilgi ver
-              },
-              child: Text('İptal'),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                Navigator.of(context).pop(); // Dialog'u kapat
-                Fluttertoast.showToast(msg: 'Fotoğraf paylaşma işlemi başlatıldı.'); // Paylaşım başlatılıyor
-
-                // Paylaşma işlemi burada yapılabilir
-                sharingFunction();
-                print("paylaşıldı");
-              },
-              child: Text('Paylaş'),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  Future<XFile?> selectImageFromGallery({required BuildContext context}) async {
-    // Önce depolama iznini kontrol et
-    var storagePermission = await Permission.storage.status;
-
-    if (storagePermission.isGranted) {
-      // İzin verilmişse galeriden resmi seç
-      XFile? pickedFile = await imagePicker.pickImage(source: ImageSource.gallery);
-      if (pickedFile != null) {
-        //imageFile = pickedFile;
-        // setState fonksiyonunu burada kullanmanız için widget context'ine ihtiyacınız var
-        // Örneğin, StatefulWidget'ten çağırabilirsiniz veya imageFile değişikliğini bir
-        // state yönetim çözümü ile (Provider, Bloc, vb.) yönetebilirsiniz.
-        Fluttertoast.showToast(msg: 'Resim seçildi.');
-        return pickedFile;
-      } else {
-        Fluttertoast.showToast(msg: 'Resim seçilmedi.');
-        return null;
-      }
-    } else if (storagePermission.isDenied) {
-      // İzin verilmemişse kullanıcıya tekrar sor
-      var newStatus = await Permission.storage.request();
-      if (newStatus.isGranted) {
-        XFile? pickedFile = await imagePicker.pickImage(source: ImageSource.gallery);
-        if (pickedFile != null) {
-          //imageFile = pickedFile;
-          Fluttertoast.showToast(msg: 'Resim seçildi.');
-          return pickedFile;
-        } else {
-          Fluttertoast.showToast(msg: 'Resim seçilmedi.');
-          return null;
-        }
-      } else {
-        Fluttertoast.showToast(msg: 'Galeriye erişim izni reddedildi.');
-      }
-    } else if (storagePermission.isPermanentlyDenied) {
-      // İzin kalıcı olarak reddedilmişse, ayarlara yönlendirme uyarısı göster
-      await showPermissionDeniedDialog(context);
-    }
-    return null;
-  }
-
-// Kalıcı olarak reddedilen izin durumu için bir uyarı mesajı göster
-  Future<void> showPermissionDeniedDialog(BuildContext context) async {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text('İzin Gerekli'),
-        content: Text(
-            'Tekrar izin vermeniz için uygulama ayarlarına gitmeniz gerekmektedir.'),
-        actions: [
-          TextButton(
-            onPressed: () async {
-              Navigator.of(context).pop();
-              await openAppSettings(); // Kullanıcıyı uygulama ayarlarına yönlendir
-            },
-            child: Text('Ayarlar'),
-          ),
-          TextButton(
-            onPressed: () {
-              Navigator.of(context).pop();
-            },
-            child: Text('İptal'),
-          ),
-        ],
       ),
     );
   }
 
 
+  void _showEditProfileModal(BuildContext context) {
+    TextEditingController fullNameController = TextEditingController(text: _userModel?.fullName);
+    TextEditingController bioController = TextEditingController(text: _userModel?.bio);
 
+    showModalBottomSheet(
+      context: context,
+      builder: (context) {
+        return Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                "Profili Düzenle",
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: fullNameController,
+                decoration: const InputDecoration(labelText: "Ad Soyad"),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: bioController,
+                decoration: const InputDecoration(labelText: "Biyografi"),
+              ),
+              const SizedBox(height: 8),
+              ElevatedButton(
+                onPressed: () async {
+                  final pickedImage = await imagePicker.pickImage(source: ImageSource.gallery);
+                  if (pickedImage != null) {
+                    setState(() {
+                      _selectedProfilePhoto = File(pickedImage.path);
+                    });
+                  }
+                },
+                child: const Text("Profil Fotoğrafı Seç"),
+              ),
+              const SizedBox(height: 8),
+              ElevatedButton(
+                onPressed: () async {
+                  SharedPreferences prefs = await SharedPreferences.getInstance();
+                  String? userId = prefs.getString('user_id');
 
-
+                  if (userId != null) {
+                    await _updateUserProfile(
+                      userId,
+                      fullNameController.text,
+                      bioController.text,
+                      _selectedProfilePhoto,
+                    );
+                    Navigator.pop(context);
+                  } else {
+                    Fluttertoast.showToast(msg: 'Kullanıcı ID bulunamadı');
+                  }
+                },
+                child: const Text("Kaydet"),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
 }

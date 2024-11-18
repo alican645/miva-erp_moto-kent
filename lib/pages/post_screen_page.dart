@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/svg.dart';
 import 'package:go_router/go_router.dart';
-import 'package:moto_kent/Models/post_model.dart';
+import 'package:moto_kent/models/post_model.dart';
 
 class PostScreenPage extends StatefulWidget {
   PostScreenPage({super.key});
